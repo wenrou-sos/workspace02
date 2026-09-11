@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """sqlite3 数据层：建表、元数据（包厢/设备拓扑）、种子数据"""
+import os
 import sqlite3
 from datetime import datetime
 
-DB_PATH = "/workspace/data/anomaly.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "anomaly.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -116,8 +118,7 @@ def get_conn():
 
 
 def init_db():
-    import os
-    os.makedirs("/workspace/data", exist_ok=True)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_conn()
     conn.executescript(SCHEMA)
     for k, v in DEFAULT_SETTINGS.items():

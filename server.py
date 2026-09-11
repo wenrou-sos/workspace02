@@ -9,7 +9,8 @@ from urllib.parse import urlparse, parse_qs
 import correlation as corr
 from db import SYMPTOMS, ZONES, init_db, get_conn, clear_business_data, seed_demo_events
 
-STATIC_DIR = "/workspace/static"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 VALID_SEVERITIES = {"info", "warn", "critical"}
 
@@ -206,9 +207,19 @@ def create_event(conn, body):
             raise ApiError(400, f"缺少字段 {k}")
     if body["symptom"] not in SYMPTOMS:
         raise ApiError(400, "未知症状类型")
+    room = conn.execute("SELECT * FROM rooms WHERE id=? AND id NOT LIKE 'Z-%'",
+                        (body["room_id"],)).fetchone()
+    if not room:
+        raise ApiError(400, "包厢不存在")
     dev = conn.execute("SELECT * FROM devices WHERE id=?", (body["device_id"],)).fetchone()
     if not dev:
         raise ApiError(400, "设备不存在")
+    if dev["room_id"] != body["room_id"]:
+        dev_room = conn.execute("SELECT name FROM rooms WHERE id=?",
+                                (dev["room_id"],)).fetchone()
+        where = dev_room["name"] if dev_room else dev["room_id"]
+        raise ApiError(400, f"设备 {dev['name']} 不属于包厢 {room['name']}，"
+                            f"它安装在 {where}")
     sev = body.get("severity", "warn")
     if sev not in VALID_SEVERITIES:
         sev = "warn"
@@ -311,8 +322,17 @@ class Handler(BaseHTTPRequestHandler):
     def serve_static(self, path):
         rel = path.lstrip("/") or "index.html"
         full = os.path.normpath(os.path.join(STATIC_DIR, rel))
-        if not full.startswith(STATIC_DIR) or not os.path.isfile(full):
+        # 防目录穿越
+        if not full.startswith(STATIC_DIR + os.sep):
+            raise ApiError(404, "资源不存在")
+        if not os.path.isfile(full):
+            # 明确的静态资源后缀缺失 -> 404；无扩展名的前端路由 -> 回退 index.html
+            if os.path.splitext(rel)[1] in (".js", ".css", ".png", ".jpg",
+                                            ".svg", ".ico", ".woff2"):
+                raise ApiError(404, "静态资源不存在")
             full = os.path.join(STATIC_DIR, "index.html")
+            if not os.path.isfile(full):
+                raise ApiError(404, "index.html 缺失，static 目录是否完整？")
         ctype = {"html": "text/html; charset=utf-8", "js": "application/javascript; charset=utf-8",
                  "css": "text/css; charset=utf-8"}.get(full.rsplit(".", 1)[-1], "text/plain")
         with open(full, "rb") as f:
