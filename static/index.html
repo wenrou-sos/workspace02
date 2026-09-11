@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设备异常记录关联台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">◈</span>
+    <div>
+      <h1>设备异常记录关联台</h1>
+      <div class="sub">相似事件归并 · 时间窗口规则 · 误合并拆分 · 故障关系可视化</div>
+    </div>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="top-actions">
+    <button class="btn" id="btn-seed">载入演示数据</button>
+    <button class="btn btn-ghost" id="btn-recompute">全量重算</button>
+    <button class="btn btn-danger-ghost" id="btn-reset">清空</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="report">① 店员上报</button>
+  <button class="tab" data-tab="board">② 关联看板</button>
+  <button class="tab" data-tab="topo">③ 故障链路总览</button>
+  <button class="tab" data-tab="settings">④ 规则与审计</button>
+</nav>
+
+<main>
+  <!-- ① 上报 -->
+  <section class="panel active" id="panel-report">
+    <div class="report-grid">
+      <div class="card form-card">
+        <h2>异常现象记录</h2>
+        <form id="event-form">
+          <div class="row">
+            <label>发生时间
+              <input type="datetime-local" name="ts" id="f-ts" required>
+            </label>
+            <label>上报店员
+              <input type="text" name="reporter" placeholder="如：小王">
+            </label>
+          </div>
+          <div class="row">
+            <label>所在包厢
+              <select name="room_id" id="f-room" required></select>
+            </label>
+            <label>故障设备
+              <select name="device_id" id="f-device" required></select>
+            </label>
+          </div>
+          <div class="row">
+            <label>异常现象
+              <select name="symptom" id="f-symptom" required></select>
+            </label>
+            <label>严重程度
+              <select name="severity">
+                <option value="info">轻微（观察）</option>
+                <option value="warn" selected>一般（影响使用）</option>
+                <option value="critical">严重（包厢停用）</option>
+              </select>
+            </label>
+          </div>
+          <label>现象描述
+            <textarea name="description" rows="3" placeholder="用店员原话描述，例如：点歌后转圈十几秒才开始播放"></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">提交记录并自动关联</button>
+          </div>
+          <div class="hint" id="form-hint"></div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>最近记录 <span class="muted" id="recent-count"></span></h2>
+        <div id="recent-events" class="event-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ② 看板 -->
+  <section class="panel" id="panel-board">
+    <div class="board-head">
+      <div class="filters">
+        <label class="check"><input type="checkbox" id="show-closed"> 显示已关闭</label>
+      </div>
+      <div class="legend">
+        <span class="lg lg-single">单台故障</span>
+        <span class="lg lg-room">包厢本地</span>
+        <span class="lg lg-zone">区域链路</span>
+        <span class="lg lg-public">公共服务</span>
+        <span class="lg lg-core">核心链路</span>
+      </div>
+    </div>
+    <div id="cluster-grid" class="cluster-grid"></div>
+    <div id="board-empty" class="empty hidden">暂无异常簇，去「店员上报」或「载入演示数据」开始。</div>
+  </section>
+
+  <!-- ③ 拓扑总览 -->
+  <section class="panel" id="panel-topo">
+    <div class="card">
+      <div class="topo-toolbar">
+        <h2>设备链路拓扑</h2>
+        <div class="topo-legend">
+          <span><i class="dot suspect-dot"></i>疑似故障点</span>
+          <span><i class="dot hl-dot"></i>故障路径</span>
+          <span><i class="dot ev-dot"></i>有异常记录</span>
+        </div>
+        <select id="topo-cluster"><option value="">全部簇叠加</option></select>
+      </div>
+      <div class="topo-scroll" id="topo-scroll"><svg id="topo-svg"></svg></div>
+    </div>
+  </section>
+
+  <!-- ④ 规则 -->
+  <section class="panel" id="panel-settings">
+    <div class="settings-grid">
+      <div class="card">
+        <h2>归并规则参数</h2>
+        <div class="rule-doc">
+          <p><b>R1 同设备复发</b>：同一台设备、同症状，间隔 ≤ <input class="mini" data-k="same_device_window_min"> 分钟 → 单台复发</p>
+          <p><b>R2 同包厢跨设备</b>：同包厢不同设备、同症状，间隔 ≤ <input class="mini" data-k="room_window_min"> 分钟 → 包厢级问题</p>
+          <p><b>R3 跨包厢公共链路</b>：不同包厢、同症状，共享上游节点，间隔 ≤ <input class="mini" data-k="public_window_min"> 分钟 → 公共故障</p>
+          <p><b>归并阈值</b>：综合相似度 ≥ <input class="mini" data-k="merge_threshold"> 分才自动并入（同症状门槛 + 文本相似度 + 关键词命中 + 共享上游）</p>
+          <p><b>离线全局汇聚</b>：离线类故障不共享区域交换机时，至少 <input class="mini" data-k="offline_global_min_rooms"> 个包厢同时出现才汇聚到核心层</p>
+        </div>
+        <button class="btn btn-primary" id="btn-save-settings">保存参数</button>
+        <span class="hint" id="settings-hint"></span>
+        <hr>
+        <h3>归并屏障（拆分后自动建立）</h3>
+        <div id="block-list" class="block-list"></div>
+      </div>
+      <div class="card">
+        <h2>操作审计</h2>
+        <div id="audit-list" class="audit-list"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 簇详情抽屉 -->
+<div class="drawer-mask hidden" id="drawer-mask"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h2 id="d-title">簇详情</h2>
+    <button class="btn btn-ghost" id="d-close">✕</button>
+  </div>
+  <div class="drawer-body" id="d-body"></div>
+</aside>
+
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>
