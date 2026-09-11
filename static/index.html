@@ -141,6 +141,7 @@
     <div class="board-head">
       <div class="filters">
         <label class="check"><input type="checkbox" id="show-closed"> 显示已关闭</label>
+        <button class="btn btn-sm" id="btn-board-merge" style="margin-left:14px">🔗 合并多个簇</button>
       </div>
       <div class="legend">
         <span class="lg lg-single">单台故障</span>
@@ -207,6 +208,37 @@
 </aside>
 
 <div id="toast" class="toast hidden"></div>
+
+<!-- 多簇合并对话框 -->
+<div class="modal-mask hidden" id="merge-mask">
+  <div class="modal" id="merge-modal">
+    <div class="modal-head">
+      <h2>🔗 合并为同一公共链路故障</h2>
+      <button class="btn btn-ghost" id="merge-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-tip">勾选确认为<strong>同一公共链路故障</strong>的关联簇。合并后生成一个带「手动」标记的新簇，
+        自动归并不会再改动它；原事件全部保留，并按合并结果重新研判与高亮拓扑。</p>
+      <div class="merge-tools">
+        <input type="text" id="merge-search" placeholder="按簇名 / 现象 / 研判筛选…">
+        <label class="check"><input type="checkbox" id="merge-show-closed"> 含已关闭</label>
+      </div>
+      <div class="merge-list" id="merge-list"></div>
+      <label class="merge-reason-label">合并理由 <span class="req">*</span>
+        <textarea id="merge-reason" rows="2"
+          placeholder="必填，例如：维修确认两次啸叫与离线均为三A区交换机端口故障导致"></textarea>
+      </label>
+      <div class="hint err" id="merge-err"></div>
+    </div>
+    <div class="modal-foot">
+      <span class="muted" id="merge-count">已选 0 个簇</span>
+      <div>
+        <button class="btn" id="merge-cancel">取消</button>
+        <button class="btn btn-primary" id="merge-confirm">确认合并</button>
+      </div>
+    </div>
+  </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>

@@ -241,6 +241,39 @@ hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
 .pager button { min-width: 32px; }
 .pager .cur { background: var(--primary); border-color: var(--primary); color: #fff; }
 
+/* ---------- 多簇合并对话框 ---------- */
+.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 60;
+  display: flex; align-items: center; justify-content: center; }
+.modal { width: 640px; max-width: calc(100vw - 40px); max-height: 84vh;
+  background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px;
+  display: flex; flex-direction: column; }
+.modal-head { display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.modal-head h2 { font-size: 16px; }
+.modal-body { padding: 16px 20px; overflow-y: auto; }
+.modal-tip { font-size: 12px; color: var(--muted); line-height: 1.7; margin-bottom: 12px;
+  background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25);
+  border-radius: 6px; padding: 8px 10px; }
+.merge-tools { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+.merge-tools input { flex: 1; margin: 0; }
+.merge-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--line);
+  border-radius: 8px; margin-bottom: 14px; }
+.merge-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.merge-item:last-child { border-bottom: none; }
+.merge-item:hover { background: var(--card); }
+.merge-item input { width: 15px; height: 15px; margin-top: 2px; flex: none; }
+.merge-item.sel { background: var(--primary-soft); }
+.merge-item .mi-name { font-size: 13px; font-weight: 600; }
+.merge-item .mi-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.merge-item .mi-verdict { font-size: 12px; margin-top: 2px; }
+.merge-reason-label { display: block; font-size: 12px; color: var(--muted); }
+.merge-reason-label textarea { margin-top: 5px; }
+.req { color: var(--critical); }
+.modal-foot { display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 20px; border-top: 1px solid var(--line); }
+.modal-foot > div { display: flex; gap: 8px; }
+
 /* ---------- Toast ---------- */
 .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
   background: #1d2939; border: 1px solid var(--primary); color: var(--text);

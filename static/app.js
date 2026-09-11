@@ -23,6 +23,7 @@ const VERDICT_COLOR = {
 let META = null;
 let clustersCache = [];
 let historyState = { page: 1, pageSize: 20, loaded: false };
+let mergeState = { selected: new Set(), presetId: null };
 
 // ============ 启动 ============
 async function boot() {
@@ -75,6 +76,15 @@ function bindGlobal() {
     loadTopology($("#topo-cluster").value));
   $("#d-close").addEventListener("click", closeDrawer);
   $("#drawer-mask").addEventListener("click", closeDrawer);
+  $("#btn-board-merge").addEventListener("click", () => openMergeModal());
+  ["#merge-close", "#merge-cancel"].forEach(id =>
+    $(id).addEventListener("click", closeMergeModal));
+  $("#merge-mask").addEventListener("click", e => {
+    if (e.target.id === "merge-mask") closeMergeModal();
+  });
+  $("#merge-search").addEventListener("input", renderMergeList);
+  $("#merge-show-closed").addEventListener("change", renderMergeList);
+  $("#merge-confirm").addEventListener("click", confirmMerge);
   $("#event-form").addEventListener("submit", submitEvent);
   $("#f-room").addEventListener("change", syncDeviceOptions);
   $("#f-symptom").addEventListener("change", updateSymptomHint);
@@ -269,6 +279,7 @@ async function openCluster(cid) {
       <button class="btn btn-sm btn-danger" id="act-split" ${c.locked ? "disabled" : ""}>↩ 拆分勾选项到新簇</button>
       <button class="btn btn-sm" id="act-lock">${c.locked ? "🔓 解锁" : "🔒 锁定防改"}</button>
       <button class="btn btn-sm" id="act-status">${c.status === "closed" ? "重新打开" : "标记关闭"}</button>
+      <button class="btn btn-sm" id="act-merge">🔗 与其他簇合并</button>
       <button class="btn btn-sm" id="act-topo">在拓扑中查看</button>
     </div>`;
 
@@ -294,6 +305,10 @@ async function openCluster(cid) {
     loadTopology(cid);
     closeDrawer();
   };
+  $("#act-merge").onclick = () => {
+    closeDrawer();
+    openMergeModal(cid);
+  };
 }
 
 function mergeReasonText(r) {
@@ -303,6 +318,91 @@ function mergeReasonText(r) {
     `时间相隔 ${r.gap_min} 分钟，相似度 ${r.score} 分` +
     (r.shared_node ? `，共享上游 ${r.shared_node}` : "") +
     (r.recompute ? "（重算）" : "");
+}
+
+// ============ 多簇人工合并 ============
+async function openMergeModal(presetId = null) {
+  mergeState = { selected: new Set(), presetId };
+  if (presetId) mergeState.selected.add(presetId);
+  $("#merge-reason").value = "";
+  $("#merge-err").textContent = "";
+  $("#merge-search").value = "";
+  $("#merge-show-closed").checked = true;   // 预置簇可能已关闭，默认全列
+  $("#merge-mask").classList.remove("hidden");
+  await renderMergeList();
+}
+
+function closeMergeModal() {
+  $("#merge-mask").classList.add("hidden");
+  mergeState.selected.clear();
+}
+
+async function renderMergeList() {
+  const includeClosed = $("#merge-show-closed").checked;
+  const data = await api("/api/clusters?status=" + (includeClosed ? "all" : "active"));
+  clustersCache = data.items;
+  const kw = $("#merge-search").value.trim().toLowerCase();
+  const list = data.items.filter(c => {
+    if (!kw) return true;
+    return [c.name, c.symptom_name, c.verdict].some(v =>
+      String(v || "").toLowerCase().includes(kw));
+  });
+  $("#merge-list").innerHTML = list.map(c => {
+    const sel = mergeState.selected.has(c.id);
+    return `<div class="merge-item ${sel ? "sel" : ""}" data-id="${c.id}">
+      <input type="checkbox" class="mi-check" ${sel ? "checked" : ""} tabindex="-1">
+      <div>
+        <div class="mi-name">#${c.id} ${esc(c.name)}
+          ${c.created_manually ? '<span class="badge manual">手动</span>' : ""}
+          ${c.locked ? '<span class="badge locked">🔒</span>' : ""}
+          ${c.status === "closed" ? '<span class="badge closed">已关闭</span>' : ""}
+        </div>
+        <div class="mi-verdict" style="color:${VERDICT_COLOR[c.verdict_key] || "var(--muted)"}">
+          ${esc(c.verdict || "（无研判）")}</div>
+        <div class="mi-meta">${fmtTs(c.first_ts)} → ${fmtTs(c.last_ts)} ·
+          ${c.event_count} 条记录 · ${c.room_count} 包厢 · ${c.device_count} 设备</div>
+      </div>
+    </div>`;
+  }).join("") || '<div class="empty" style="padding:24px">没有匹配的簇</div>';
+
+  $$("#merge-list .merge-item").forEach(el =>
+    el.addEventListener("click", () => {
+      const id = Number(el.dataset.id);
+      if (mergeState.selected.has(id)) mergeState.selected.delete(id);
+      else mergeState.selected.add(id);
+      renderMergeList();
+    }));
+  $("#merge-count").textContent = `已选 ${mergeState.selected.size} 个簇`;
+}
+
+async function confirmMerge() {
+  const ids = [...mergeState.selected];
+  const reason = $("#merge-reason").value.trim();
+  const err = $("#merge-err");
+  err.textContent = "";
+  if (ids.length < 2) {
+    err.textContent = "✗ 请至少勾选两个簇（单个簇无需合并）";
+    return;
+  }
+  if (!reason) {
+    err.textContent = "✗ 请填写合并理由，审计中需要留存处置原因";
+    return;
+  }
+  const btn = $("#merge-confirm");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/clusters/merge", {
+      method: "POST", body: { cluster_ids: ids, reason },
+    });
+    closeMergeModal();
+    toast(`已合并 ${ids.length} 个簇 → 手动簇 #${r.cluster_id}，研判已重新生成`);
+    await refreshAll();
+    openCluster(r.cluster_id);
+  } catch (e) {
+    err.textContent = "✗ " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function doSplit(cid) {

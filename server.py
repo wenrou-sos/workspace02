@@ -111,12 +111,19 @@ def api_route(method, path, qs, body):
             cid = int(path.split("/")[3])
             return cluster_detail(conn, cid)
         if method == "POST" and path == "/api/clusters/merge":
-            cid, diag = corr.manual_merge(conn, body.get("cluster_ids", []),
-                                          body.get("event_ids", []), body.get("reason", ""))
+            try:
+                cid, diag = corr.manual_merge(conn, body.get("cluster_ids", []),
+                                              body.get("event_ids", []), body.get("reason", ""))
+            except ValueError as e:
+                raise ApiError(400, str(e))
             return {"cluster_id": cid, "diagnosis": diag}
         if method == "POST" and path.endswith("/split"):
             cid = int(path.split("/")[3])
-            new_id = corr.split_cluster(conn, cid, body.get("event_ids", []), body.get("reason", ""))
+            try:
+                new_id = corr.split_cluster(conn, cid, body.get("event_ids", []),
+                                            body.get("reason", ""))
+            except ValueError as e:
+                raise ApiError(400, str(e))
             return {"new_cluster_id": new_id}
         if method == "POST" and path.endswith("/lock"):
             cid = int(path.split("/")[3])

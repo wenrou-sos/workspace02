@@ -194,7 +194,7 @@ def create_cluster(conn, name="", manual=0):
     ts = now_iso()
     cur = conn.execute(
         "INSERT INTO clusters(name,status,created_manually,locked,created_at,updated_at)"
-        " VALUES(?,?,0,0,?,?)", (name, "active", ts, ts))
+        " VALUES(?,?,?,0,?,?)", (name, "active", 1 if manual else 0, ts, ts))
     return cur.lastrowid
 
 
@@ -411,9 +411,28 @@ def split_cluster(conn, cluster_id, event_ids, reason=""):
 
 
 def manual_merge(conn, cluster_ids, event_ids=None, reason=""):
-    """人工合并多个簇（及游离事件）为一个手动簇，不加屏障"""
-    cids = [c for c in cluster_ids]
-    eids = list(event_ids or [])
+    """人工合并多个簇（及游离事件）为一个手动簇，不加屏障。
+    cluster_ids 去重并校验存在；UI 多簇合并至少要 2 个不同簇。"""
+    cids = list(dict.fromkeys(int(c) for c in cluster_ids))
+    eids = list(dict.fromkeys(int(e) for e in (event_ids or [])))
+    if len(cids) < 2 and not eids:
+        raise ValueError("至少选择两个簇才能合并")
+
+    src_names = []
+    for cid in cids:
+        row = conn.execute("SELECT name FROM clusters WHERE id=?", (cid,)).fetchone()
+        if not row:
+            raise ValueError(f"簇 #{cid} 不存在，可能已被合并或拆分")
+        cnt = conn.execute("SELECT COUNT(*) c FROM events WHERE cluster_id=?",
+                           (cid,)).fetchone()["c"]
+        src_names.append(f"#{cid}「{row['name']}」({cnt}条)")
+    if eids:
+        placeholders = ",".join("?" * len(eids))
+        found = conn.execute(
+            f"SELECT id FROM events WHERE id IN ({placeholders})", eids).fetchall()
+        if len(found) != len(eids):
+            raise ValueError("存在无效的事件编号")
+
     all_events = []
     for cid in cids:
         all_events += [r["id"] for r in conn.execute(
@@ -435,7 +454,9 @@ def manual_merge(conn, cluster_ids, event_ids=None, reason=""):
                      (json.dumps({"rule": "MANUAL", "detail": reason_text},
                                  ensure_ascii=False), eid))
     audit(conn, "manual_merge", new_cid, None,
-          f"人工合并簇 {cids} 与事件 {eids}（{reason_text}）")
+          f"合并 {len(cids)} 个簇 {'、'.join(src_names)}"
+          + (f" 与游离事件 {eids}" if eids else "")
+          + f" → 新簇#{new_cid}；处置原因：{reason_text}")
     diag = diagnose_cluster(conn, new_cid)
     conn.commit()
     return new_cid, diag
