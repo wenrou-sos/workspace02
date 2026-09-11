@@ -53,7 +53,8 @@ function switchTab(tab) {
 
 function bindGlobal() {
   $("#btn-seed").addEventListener("click", async () => {
-    if (!confirm("将清空当前业务数据并载入 16 条演示事件（含 8 个典型关联簇），继续？")) return;
+    const n = META.demo_event_count;
+    if (!confirm(`将清空当前业务数据并载入 ${n} 条演示事件（含 8 个典型关联簇），继续？`)) return;
     const r = await api("/api/seed", { method: "POST" });
     toast(`已生成 ${r.created} 条记录并完成自动关联`);
     await refreshAll();
@@ -483,14 +484,18 @@ async function loadTopology(clusterId = "") {
     <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
       <path d="M0,0 L8,4 L0,8 Z" fill="#2a3546"/></marker></defs>`;
 
-  // 区域背景
+  // 区域背景：以该区域真实包厢设备的首排/末排为边界精确包裹
+  // （首排在 sw.y-200，每间占 150px，排高 40px），标题与高度均反映真实包厢数
   const zones = META.zones;
-  zones.forEach((z, i) => {
+  zones.forEach((z) => {
     const sw = byId["SW-" + z.id];
     if (!sw) return;
-    html += `<rect x="330" y="${sw.y - 60}" width="${W - 360}" height="630" rx="12"
+    const n = z.rooms.length;
+    const top = sw.y - 225;            // 首排设备(sw.y-200)上方 25px
+    const zoneH = (n - 1) * 150 + 90;  // 包住 n 排设备到末排下方 10px
+    html += `<rect x="330" y="${top}" width="${W - 360}" height="${zoneH}" rx="12"
       fill="rgba(255,255,255,.018)" stroke="#1e2735" stroke-dasharray="4 4"/>
-      <text x="345" y="${sw.y - 38}" fill="#556378" font-size="13">${z.name}（4间包厢）</text>`;
+      <text x="345" y="${top + 22}" fill="#556378" font-size="13">${z.name}（${n}间包厢）</text>`;
   });
 
   html += data.edges.map(([a, b]) => edgePath(a, b)).join("");

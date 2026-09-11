@@ -7,7 +7,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import correlation as corr
-from db import SYMPTOMS, ZONES, init_db, get_conn, clear_business_data, seed_demo_events
+from db import (SYMPTOMS, ZONES, DEMO_EVENT_COUNT, init_db, get_conn,
+                clear_business_data, seed_demo_events)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -174,6 +175,7 @@ def meta(conn):
         "rooms": rooms,
         "devices": devices,
         "settings": corr.get_settings(conn),
+        "demo_event_count": DEMO_EVENT_COUNT,
     }
 
 
