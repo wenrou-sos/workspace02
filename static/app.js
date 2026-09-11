@@ -22,6 +22,7 @@ const VERDICT_COLOR = {
 
 let META = null;
 let clustersCache = [];
+let historyState = { page: 1, pageSize: 20, loaded: false };
 
 // ============ 启动 ============
 async function boot() {
@@ -38,7 +39,16 @@ function bindTabs() {
     $$(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + t.dataset.tab));
     if (t.dataset.tab === "topo") loadTopology();
     if (t.dataset.tab === "settings") loadSettingsPage();
+    if (t.dataset.tab === "history") {
+      initHistoryFilters();
+      if (!historyState.loaded) loadHistory(1);
+    }
   }));
+}
+
+function switchTab(tab) {
+  $$(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === tab));
+  $$(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + tab));
 }
 
 function bindGlobal() {
@@ -68,10 +78,25 @@ function bindGlobal() {
   $("#f-room").addEventListener("change", syncDeviceOptions);
   $("#f-symptom").addEventListener("change", updateSymptomHint);
   $("#btn-save-settings").addEventListener("click", saveSettings);
+  $("#goto-history").addEventListener("click", () => {
+    switchTab("history");
+    initHistoryFilters();
+    if (!historyState.loaded) loadHistory(1);
+  });
+  $("#q-room").addEventListener("change", () => {
+    fillHistoryDeviceOptions($("#q-room").value);
+  });
+  $("#q-search").addEventListener("click", () => loadHistory(1));
+  $("#q-clear").addEventListener("click", clearHistoryFilters);
+  // 筛选区回车直接查询
+  ["q-from", "q-to"].forEach(id => $("#" + id).addEventListener("keydown", e => {
+    if (e.key === "Enter") loadHistory(1);
+  }));
 }
 
 async function refreshAll() {
-  const [ov, _c, _e] = await Promise.all([loadOverview(), loadBoard(), loadRecent()]);
+  await Promise.all([loadOverview(), loadBoard(), loadRecent()]);
+  if (historyState.loaded) await loadHistory(historyState.page);
 }
 
 // ============ ① 上报表单 ============
@@ -131,9 +156,9 @@ async function submitEvent(e) {
 }
 
 async function loadRecent() {
-  const data = await api("/api/events");
-  $("#recent-count").textContent = `（共 ${data.items.length} 条）`;
-  $("#recent-events").innerHTML = data.items.slice(0, 30).map(ev => `
+  const data = await api("/api/events?page=1&page_size=30");
+  $("#recent-count").textContent = `（显示最新 ${data.items.length} / 共 ${data.total} 条，完整筛选见历史记录）`;
+  $("#recent-events").innerHTML = data.items.map(ev => `
     <div class="ev" data-cluster="${ev.cluster_id}">
       <div class="sev ${ev.severity}"></div>
       <div class="ev-main">
@@ -263,8 +288,7 @@ async function openCluster(cid) {
     closeDrawer(); await refreshAll();
   };
   $("#act-topo").onclick = () => {
-    $$(".tab").forEach(x => x.classList.toggle("active", x.dataset.tab === "topo"));
-    $$(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-topo"));
+    switchTab("topo");
     $("#topo-cluster").value = cid;
     loadTopology(cid);
     closeDrawer();
@@ -300,6 +324,129 @@ async function doSplit(cid) {
 function closeDrawer() {
   $("#drawer").classList.remove("open");
   $("#drawer-mask").classList.add("hidden");
+}
+
+// ============ ② 历史记录组合筛选 + 分页 ============
+let historyFiltersInited = false;
+
+function initHistoryFilters() {
+  if (historyFiltersInited) return;
+  historyFiltersInited = true;
+  $("#q-room").insertAdjacentHTML("beforeend",
+    META.rooms.map(r => `<option value="${r.id}">${r.zone_name} · ${r.name}</option>`).join(""));
+  $("#q-symptom").insertAdjacentHTML("beforeend",
+    META.symptoms.map(s => `<option value="${s.id}">${s.name}</option>`).join(""));
+  fillHistoryDeviceOptions("");
+}
+
+function fillHistoryDeviceOptions(roomId) {
+  const sel = $("#q-device");
+  const devices = roomId ? META.devices.filter(d => d.room_id === roomId)
+    : META.devices.filter(d => d.room_id);
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">${roomId ? "该包厢全部设备" : "全部设备"}</option>` +
+    devices.map(d => `<option value="${d.id}">${d.name}</option>`).join("");
+  sel.disabled = false;
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+}
+
+function historyQueryString(page) {
+  const f = (id) => $(id).value;
+  const params = new URLSearchParams();
+  if (f("#q-room")) params.set("room", f("#q-room"));
+  if (f("#q-device")) params.set("device", f("#q-device"));
+  if (f("#q-symptom")) params.set("symptom", f("#q-symptom"));
+  if (f("#q-severity")) params.set("severity", f("#q-severity"));
+  if (f("#q-from")) params.set("time_from", f("#q-from"));
+  if (f("#q-to")) params.set("time_to", f("#q-to"));
+  params.set("page", page);
+  params.set("page_size", historyState.pageSize);
+  return params.toString();
+}
+
+const SEV_LABEL = { critical: "严重", warn: "一般", info: "轻微" };
+
+async function loadHistory(page = 1) {
+  historyState.loaded = true;
+  const hint = $("#q-hint");
+  hint.textContent = "";
+  hint.classList.remove("err");
+  // 时间范围基本校验
+  const tf = $("#q-from").value, tt = $("#q-to").value;
+  if (tf && tt && tf > tt) {
+    hint.textContent = "✗ 开始时间不能晚于结束时间";
+    hint.classList.add("err");
+    return;
+  }
+  let data;
+  try {
+    data = await api("/api/events?" + historyQueryString(page));
+  } catch (e) {
+    hint.textContent = "✗ " + e.message;
+    hint.classList.add("err");
+    return;
+  }
+  historyState.page = data.page;
+  renderHistoryRows(data.items);
+  $("#q-summary").textContent =
+    data.total === 0 ? "无匹配记录"
+      : `共 ${data.total} 条 · 第 ${data.page}/${data.pages} 页 · 按发生时间倒序`;
+  renderPager(data);
+}
+
+function renderHistoryRows(items) {
+  $("#q-rows").innerHTML = items.map(ev => {
+    const clusterCell = ev.cluster_id
+      ? `<span class="cluster-link" data-cluster="${ev.cluster_id}">#${ev.cluster_id} 查看</span>
+         ${ev.verdict ? `<span class="verdict-mini" style="color:${VERDICT_COLOR[ev.verdict_key] || "var(--muted)"}">${esc(ev.verdict)}</span>` : ""}`
+      : '<span class="muted">—</span>';
+    return `<tr>
+      <td class="col-time">${fmtFull(ev.ts)}</td>
+      <td>${esc(ev.room_name)}</td>
+      <td>${esc(ev.device_name)}</td>
+      <td><span class="sym-chip">${esc(ev.symptom_name)}</span></td>
+      <td><span class="sev-pill ${ev.severity}">${SEV_LABEL[ev.severity]}</span></td>
+      <td class="col-desc">${esc(ev.description) || '<span class="muted">（无描述）</span>'}</td>
+      <td>${esc(ev.reporter || "—")}</td>
+      <td class="col-cluster">${clusterCell}</td>
+    </tr>`;
+  }).join("") || '<tr><td colspan="8" class="empty">没有符合条件的记录，试试放宽筛选条件</td></tr>';
+  $$("#q-rows .cluster-link").forEach(el =>
+    el.addEventListener("click", () => openCluster(el.dataset.cluster)));
+}
+
+function renderPager(data) {
+  if (data.total === 0) { $("#q-pager").innerHTML = ""; return; }
+  const btn = (label, page, opts = {}) =>
+    `<button class="btn btn-sm ${opts.cur ? "cur" : ""}" ${opts.disabled ? "disabled" : ""}
+       data-page="${page}">${label}</button>`;
+  // 页码窗口：当前页前后各2页
+  const win = [];
+  for (let p = Math.max(1, data.page - 2); p <= Math.min(data.pages, data.page + 2); p++) win.push(p);
+  let html = btn("‹ 上一页", data.page - 1, { disabled: !data.has_prev });
+  html += '<span class="pages">' + win.map(p =>
+    btn(String(p), p, { cur: p === data.page })).join("") + "</span>";
+  html += btn("下一页 ›", data.page + 1, { disabled: !data.has_next });
+  html += `<select id="q-pagesize">
+      ${[20, 50, 100].map(n => `<option value="${n}" ${n === data.page_size ? "selected" : ""}>每页 ${n} 条</option>`).join("")}
+    </select>`;
+  $("#q-pager").innerHTML = html;
+  $$("#q-pager button[data-page]").forEach(b =>
+    b.addEventListener("click", () => loadHistory(Number(b.dataset.page))));
+  $("#q-pagesize").addEventListener("change", e => {
+    historyState.pageSize = Number(e.target.value);
+    loadHistory(1);
+  });
+}
+
+function clearHistoryFilters() {
+  ["#q-room", "#q-device", "#q-symptom", "#q-severity", "#q-from", "#q-to"]
+    .forEach(sel => { $(sel).value = ""; });
+  fillHistoryDeviceOptions("");
+  const hint = $("#q-hint");
+  hint.textContent = "";
+  hint.classList.remove("err");
+  loadHistory(1);
 }
 
 // ============ ③ 拓扑可视化（SVG，手工坐标） ============

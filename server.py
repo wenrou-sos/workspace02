@@ -16,18 +16,50 @@ VALID_SEVERITIES = {"info", "warn", "critical"}
 
 
 # ---------------- 序列化 ----------------
+def events_json(conn, rows):
+    """批量序列化事件，房间/设备/簇信息一次性预取，避免大数据量下的 N+1 查询"""
+    rows = list(rows)
+    if not rows:
+        return []
+    dev_ids = list({r["device_id"] for r in rows})
+    room_ids = list({r["room_id"] for r in rows})
+    cids = [r["cluster_id"] for r in rows if r["cluster_id"] is not None]
+    ph_d = ",".join("?" * len(dev_ids))
+    ph_r = ",".join("?" * len(room_ids))
+    devs = {r["id"]: r for r in conn.execute(
+        f"SELECT id,name,type FROM devices WHERE id IN ({ph_d})", dev_ids).fetchall()}
+    rooms = {r["id"]: r for r in conn.execute(
+        f"SELECT id,name,zone,zone_name FROM rooms WHERE id IN ({ph_r})", room_ids).fetchall()}
+    clusters = {}
+    if cids:
+        ph_c = ",".join("?" * len(cids))
+        clusters = {r["id"]: r for r in conn.execute(
+            f"SELECT id,name,diagnosis FROM clusters WHERE id IN ({ph_c})", cids).fetchall()}
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        dev = devs.get(d["device_id"])
+        room = rooms.get(d["room_id"])
+        c = clusters.get(d["cluster_id"])
+        d["device_name"] = dev["name"] if dev else d["device_id"]
+        d["device_type"] = dev["type"] if dev else None
+        d["room_name"] = room["name"] if room else d["room_id"]
+        d["zone"] = room["zone"] if room else None
+        d["zone_name"] = room["zone_name"] if room else None
+        d["merge_reason"] = json.loads(d["merge_reason"]) if d["merge_reason"] else None
+        d["symptom_name"] = corr.canonical(d["symptom"])
+        if c:
+            d["cluster_name"] = c["name"]
+            diag = json.loads(c["diagnosis"]) if c["diagnosis"] else None
+            d["verdict"] = diag["verdict"] if diag else ""
+            d["verdict_key"] = diag["verdict_key"] if diag else None
+        out.append(d)
+    return out
+
+
 def event_json(conn, r):
-    d = dict(r)
-    dev = conn.execute("SELECT name,type FROM devices WHERE id=?", (d["device_id"],)).fetchone()
-    room = conn.execute("SELECT name,zone,zone_name FROM rooms WHERE id=?", (d["room_id"],)).fetchone()
-    d["device_name"] = dev["name"] if dev else d["device_id"]
-    d["device_type"] = dev["type"] if dev else None
-    d["room_name"] = room["name"] if room else d["room_id"]
-    d["zone"] = room["zone"] if room else None
-    d["zone_name"] = room["zone_name"] if room else None
-    d["merge_reason"] = json.loads(d["merge_reason"]) if d["merge_reason"] else None
-    d["symptom_name"] = corr.canonical(d["symptom"])
-    return d
+    return events_json(conn, [r])[0]
 
 
 def cluster_brief(conn, c):
@@ -184,20 +216,72 @@ def overview(conn):
 
 
 def list_events(conn, qs):
-    sql = "SELECT * FROM events WHERE 1=1"
-    args = []
-    if qs.get("cluster"):
-        sql += " AND cluster_id=?"
-        args.append(int(qs["cluster"][0]))
-    if qs.get("room"):
-        sql += " AND room_id=?"
-        args.append(qs["room"][0])
-    if qs.get("symptom"):
-        sql += " AND symptom=?"
-        args.append(qs["symptom"][0])
-    sql += " ORDER BY ts DESC, id DESC"
-    rows = conn.execute(sql, args).fetchall()
-    return {"items": [event_json(conn, r) for r in rows]}
+    """组合筛选 + 分页。
+    条件：room / device / symptom / severity / time_from / time_to / cluster
+    分页：page(从1起) / page_size(默认20，上限100)；返回 total / page / page_size / pages
+    """
+    def q(name):
+        return qs[name][0] if name in qs and qs[name][0] != "" else None
+
+    where, args = ["1=1"], []
+    if q("cluster"):
+        where.append("cluster_id=?")
+        args.append(int(q("cluster")))
+    if q("room"):
+        where.append("room_id=?")
+        args.append(q("room"))
+    if q("device"):
+        where.append("device_id=?")
+        args.append(q("device"))
+    if q("symptom"):
+        if q("symptom") not in SYMPTOMS:
+            raise ApiError(400, "未知异常现象")
+        where.append("symptom=?")
+        args.append(q("symptom"))
+    if q("severity"):
+        if q("severity") not in VALID_SEVERITIES:
+            raise ApiError(400, "严重程度只能是 info/warn/critical")
+        where.append("severity=?")
+        args.append(q("severity"))
+    tf, tt = q("time_from"), q("time_to")
+    # 结束时间只精确到分钟时补到该分钟末，保证 "21:00" 能包含 21:00:xx 的记录
+    if tf:
+        validate_time(tf, "开始时间")
+    if tt:
+        validate_time(tt, "结束时间")
+        if len(tt) == 16:
+            tt = tt + ":59"
+    if tf:
+        where.append("ts >= ?")
+        args.append(tf)
+    if tt:
+        where.append("ts <= ?")
+        args.append(tt)
+
+    where_sql = " AND ".join(where)
+    total = conn.execute(f"SELECT COUNT(*) c FROM events WHERE {where_sql}",
+                         args).fetchone()["c"]
+    try:
+        page = max(1, int(q("page") or 1))
+        page_size = min(100, max(1, int(q("page_size") or 20)))
+    except ValueError:
+        raise ApiError(400, "分页参数必须是整数")
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, pages)
+    offset = (page - 1) * page_size
+    rows = conn.execute(
+        f"SELECT * FROM events WHERE {where_sql} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+        args + [page_size, offset]).fetchall()
+    return {"items": events_json(conn, rows), "total": total,
+            "page": page, "page_size": page_size, "pages": pages,
+            "has_prev": page > 1, "has_next": page < pages}
+
+
+def validate_time(s, label):
+    try:
+        corr.parse_ts(s)
+    except ValueError:
+        raise ApiError(400, f"{label}格式应为 YYYY-MM-DDTHH:MM")
 
 
 def create_event(conn, body):

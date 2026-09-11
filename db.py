@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_cluster ON events(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
+CREATE INDEX IF NOT EXISTS idx_events_room ON events(room_id);
+CREATE INDEX IF NOT EXISTS idx_events_device ON events(device_id);
+CREATE INDEX IF NOT EXISTS idx_events_symptom_sev ON events(symptom, severity);
 
 CREATE TABLE IF NOT EXISTS clusters (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

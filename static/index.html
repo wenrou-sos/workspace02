@@ -25,9 +25,10 @@
 
 <nav class="tabs">
   <button class="tab active" data-tab="report">① 店员上报</button>
-  <button class="tab" data-tab="board">② 关联看板</button>
-  <button class="tab" data-tab="topo">③ 故障链路总览</button>
-  <button class="tab" data-tab="settings">④ 规则与审计</button>
+  <button class="tab" data-tab="history">② 历史记录</button>
+  <button class="tab" data-tab="board">③ 关联看板</button>
+  <button class="tab" data-tab="topo">④ 故障链路总览</button>
+  <button class="tab" data-tab="settings">⑤ 规则与审计</button>
 </nav>
 
 <main>
@@ -75,9 +76,63 @@
         </form>
       </div>
       <div class="card">
-        <h2>最近记录 <span class="muted" id="recent-count"></span></h2>
+        <h2>最近记录 <span class="muted" id="recent-count"></span>
+          <button class="btn btn-sm" id="goto-history" style="float:right">🔎 多条件查询全部历史</button>
+        </h2>
         <div id="recent-events" class="event-list"></div>
       </div>
+    </div>
+  </section>
+
+  <!-- ② 历史记录 -->
+  <section class="panel" id="panel-history">
+    <div class="card filter-card">
+      <div class="filter-grid">
+        <label>包厢
+          <select id="q-room"><option value="">全部包厢</option></select>
+        </label>
+        <label>设备
+          <select id="q-device"><option value="">全部设备</option></select>
+        </label>
+        <label>异常现象
+          <select id="q-symptom"><option value="">全部现象</option></select>
+        </label>
+        <label>严重程度
+          <select id="q-severity">
+            <option value="">全部程度</option>
+            <option value="critical">严重（包厢停用）</option>
+            <option value="warn">一般（影响使用）</option>
+            <option value="info">轻微（观察）</option>
+          </select>
+        </label>
+        <label>发生时间从
+          <input type="datetime-local" id="q-from">
+        </label>
+        <label>到
+          <input type="datetime-local" id="q-to">
+        </label>
+      </div>
+      <div class="filter-actions">
+        <button class="btn btn-primary" id="q-search">查询</button>
+        <button class="btn" id="q-clear">清空条件</button>
+        <span class="hint" id="q-hint"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="result-head">
+        <h2 style="margin:0">查询结果</h2>
+        <span class="muted" id="q-summary"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="hist-table">
+          <thead><tr>
+            <th>发生时间</th><th>包厢</th><th>设备</th><th>现象</th><th>严重</th>
+            <th>描述</th><th>店员</th><th>归并簇 / 研判</th>
+          </tr></thead>
+          <tbody id="q-rows"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="q-pager"></div>
     </div>
   </section>
 

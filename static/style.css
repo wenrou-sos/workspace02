@@ -213,6 +213,34 @@ hr { border: none; border-top: 1px solid var(--line); margin: 18px 0; }
 .audit-item b { color: #a8c4ec; font-weight: 600; }
 .audit-time { color: #5f6d80; font-size: 11px; }
 
+/* ---------- 历史记录：筛选 / 表格 / 分页 ---------- */
+.filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 16px; }
+.filter-grid label { margin-bottom: 10px; }
+.filter-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.result-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 10px; }
+.table-wrap { overflow-x: auto; }
+.hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hist-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px;
+  padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.hist-table td { padding: 9px 10px; border-bottom: 1px solid var(--line);
+  vertical-align: top; max-width: 260px; }
+.hist-table tbody tr:hover { background: var(--bg-soft); }
+.hist-table .col-time { white-space: nowrap; color: #b7c2d1; font-variant-numeric: tabular-nums; }
+.hist-table .col-desc { color: var(--muted); min-width: 180px; }
+.hist-table .col-cluster { white-space: nowrap; }
+.sev-pill { font-size: 11px; padding: 1px 9px; border-radius: 10px; white-space: nowrap; }
+.sev-pill.critical { background: rgba(248,113,113,.15); color: var(--critical); }
+.sev-pill.warn { background: rgba(251,191,36,.14); color: var(--warn); }
+.sev-pill.info { background: rgba(125,211,252,.12); color: var(--info); }
+.cluster-link { color: #8ab4f8; cursor: pointer; text-decoration: underline dotted; font-size: 12px; }
+.cluster-link:hover { color: var(--primary); }
+.verdict-mini { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+.pager { display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+  margin-top: 14px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+.pager .pages { display: flex; gap: 4px; }
+.pager button { min-width: 32px; }
+.pager .cur { background: var(--primary); border-color: var(--primary); color: #fff; }
+
 /* ---------- Toast ---------- */
 .toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
   background: #1d2939; border: 1px solid var(--primary); color: var(--text);
